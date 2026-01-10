@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI Realtime WebRTC</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f4f9; }
+        .controls { padding: 20px; border-radius: 12px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; }
+        #start-btn { background: #10a37f; color: white; }
+        #stop-btn { background: #d93025; color: white; display: none; }
+        #status { margin-top: 15px; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <h2>OpenAI Realtime Voice</h2>
+        <button id="start-btn">Start Conversation</button>
+        <button id="stop-btn">Stop</button>
+        <div id="status">Status: Disconnected</div>
+    </div>
+
+    <script>
+
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusDiv = document.getElementById('status');
+        
+        let pc = null;
+        let localStream = null;
+
+        async function init() {
+            try {
+                statusDiv.innerText = "Status: Accessing Microphone...";
+                
+                // 1. Get Microphone
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // 2. Initialize PeerConnection
+                pc = new RTCPeerConnection();
+
+                // 3. Handle incoming audio from OpenAI
+                const audioEl = document.createElement("audio");
+                audioEl.autoplay = true;
+                pc.ontrack = (e) => {
+                    statusDiv.innerText = "Status: Receiving Audio";
+                    audioEl.srcObject = e.streams[0];
+                };
+
+                // 4. Add mic track to connection
+                pc.addTrack(localStream.getTracks()[0]);
+                pc.addTransceiver("audio", { direction: "sendrecv" });
+
+
+                // 5. Setup Data Channel (for text/events)
+                dc = pc.createDataChannel("oai-events");
+                dc.onmessage = (e) => {
+                    const event = JSON.parse(e.data);
+                    console.log("OpenAI Event:", event);
+                };
+
+                // 6. Create SDP Offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                statusDiv.innerText = "Status: Negotiating with Backend...";
+
+                // 7. Relay SDP to your backend (Unified Interface)
+                const response = await fetch(`http://127.0.0.1:3000/api/session`, {
+                    method: "POST",
+                    body: offer.sdp,
+                    headers: { "Content-Type": "application/sdp" }
+                });
+
+                const answerSdp = await response.text();
+                console.log(answerSdp)
+
+                // 8. Set Remote Description
+                await pc.setRemoteDescription({
+                    type: "answer",
+                    sdp: answerSdp
+                });
+
+                statusDiv.innerText = "Status: Connected!";
+                startBtn.style.display = "none";
+                stopBtn.style.display = "inline-block";
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "Error: " + err.message;
+            }
+        }
+
+        function stop() {
+            if (pc) pc.close();
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            location.reload(); // Simplest way to reset state
+        }
+
+        startBtn.addEventListener('click', init);
+        stopBtn.addEventListener('click', stop);
+    </script>
+</body>
+</html>

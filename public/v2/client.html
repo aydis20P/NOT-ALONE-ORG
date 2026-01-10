@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI Realtime WebRTC</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f4f9; }
+        .controls { padding: 20px; border-radius: 12px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; }
+        #start-btn { background: #10a37f; color: white; }
+        #stop-btn { background: #d93025; color: white; display: none; }
+        #status { margin-top: 15px; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <h2>OpenAI Realtime Voice</h2>
+        <button id="start-btn">Start Conversation</button>
+        <button id="stop-btn">Stop</button>
+        <div id="status">Status: Disconnected</div>
+    </div>
+
+    <script>
+        const BASE_PROMPT = `
+        Eres NOT ALONE.
+
+        Tu rol es acompañar emocionalmente a personas que se sienten solas,
+        vulnerables o angustiadas.
+
+        Escucha con atención.
+        Valida emociones.
+        Habla con calma.
+
+        Nunca juzgues.
+        Nunca minimices el dolor.
+        No prometas salvar.
+        No reemplaces ayuda profesional.
+
+        Tu presencia debe sentirse humana, cálida y segura.
+        `;
+        const STATE_PROMPTS = {
+        ACOMPANAMIENTO: `
+        Estado: ACOMPANAMIENTO
+        - Escucha más de lo que hablas
+        - Usa frases cortas
+        - Haz preguntas abiertas
+        - Refleja emociones
+        `,
+
+        ALERTA_SUAVE: `
+        Estado: ALERTA_SUAVE
+        - Reconoce cansancio emocional
+        - Reduce ritmo
+        - Refuerza que no está sola
+        `,
+
+        RIESGO: `
+        Estado: RIESGO
+        - Reconoce el dolor explícitamente
+        - Prioriza seguridad
+        - Sugiere apoyo humano inmediato
+        - No abandones la conversación
+        `
+        };
+
+        let currentState = "ACOMPANAMIENTO";
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusDiv = document.getElementById('status');
+        
+        let pc = null;
+        let dc = null; //**V2
+        let dcReady = false; //**V2
+        let localStream = null;
+
+        async function init() {
+            try {
+                statusDiv.innerText = "Status: Accessing Microphone...";
+                
+                // 1. Get Microphone
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // 2. Initialize PeerConnection
+                pc = new RTCPeerConnection();
+
+                // 3. Handle incoming audio from OpenAI
+                const audioEl = document.createElement("audio");
+                audioEl.autoplay = true;
+                pc.ontrack = (e) => {
+                    statusDiv.innerText = "Status: Receiving Audio";
+                    audioEl.srcObject = e.streams[0];
+                };
+
+                // 4. Add mic track to connection
+                //pc.addTrack(localStream.getTracks()[0]);
+                pc.addTransceiver("audio", { direction: "sendrecv" });//** V2
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                });
+
+                // 5. Setup Data Channel (for text/events)
+                dc = pc.createDataChannel("oai-events"); //**V2
+                //dc.onmessage = (e) => {
+                //    const event = JSON.parse(e.data);
+                //    console.log("OpenAI Event:", event);
+                //};
+                dc.onmessage = (e) => {//**V2
+                    const event = JSON.parse(e.data);
+                    //console.log("OpenAI Event:", event);
+                    console.log(event.transcript);
+
+                    // Solo nos importa cuando el modelo devuelve texto //** V2 incorrecto 
+                    /*
+                    if (event.type === "response.output_text.delta" && event.delta) {
+                        console.log("TRYING TO DETECT NEW STATE");
+                        
+                        const newState = detectStateFromText(event.delta);
+
+                        if (newState !== currentState) {
+                        console.log(`🔄 Cambio de estado: ${currentState} → ${newState}`);
+                        currentState = newState;
+                        sendPrompt(currentState);
+                        }
+                    }
+                    */
+                     if (event.type === "input_audio_transcription.completed") {
+                        const userText = event.transcript;
+                        console.log("🧑 Usuario dijo:", userText);
+
+                        const newState = detectStateFromText(userText);
+
+                        if (newState !== currentState) {
+                        console.log(`🔄 Cambio de estado: ${currentState} → ${newState}`);
+                        currentState = newState;
+                        sendPrompt(currentState);
+                        }
+                    }
+                };
+
+                // 6. Create SDP Offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                statusDiv.innerText = "Status: Negotiating with Backend...";
+
+                // 7. Relay SDP to your backend (Unified Interface)
+                const response = await fetch(`http://127.0.0.1:3000/api/session`, {
+                    method: "POST",
+                    body: offer.sdp,
+                    headers: { "Content-Type": "application/sdp" }
+                });
+
+                const answerSdp = await response.text();
+                console.log(answerSdp)
+
+                // 8. Set Remote Description
+                await pc.setRemoteDescription({
+                    type: "answer",
+                    sdp: answerSdp
+                });
+
+                dc.onopen = () => { //V2
+                    console.log("✅ DataChannel abierto");
+                    dcReady = true;
+
+                    // 🔥 ACTIVA TRANSCRIPCIÓN DEL AUDIO DE ENTRADA
+                    dc.send(JSON.stringify({
+                        type: "session.update",
+                        session: {
+                            input_audio_transcription: {
+                                model: "gpt-4o-mini-transcribe"
+                            }
+                        }
+                    }));
+
+                    // Envío del prompt inicial
+                    sendPrompt("ACOMPANAMIENTO");
+                };
+
+                statusDiv.innerText = "Status: Connected!";
+                startBtn.style.display = "none";
+                stopBtn.style.display = "inline-block";
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "Error: " + err.message;
+            }
+        }
+
+        function stop() {
+            if (pc) pc.close();
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            location.reload(); // Simplest way to reset state
+        }
+
+        function sendPrompt(state) { //**V2
+            if (!dc || !dcReady) {
+                console.warn("⚠️ DataChannel no listo, prompt no enviado");
+                return;
+            }
+
+            const instructions = `
+            ${BASE_PROMPT}
+
+            ${STATE_PROMPTS[state]}
+            `;
+
+            dc.send(JSON.stringify({
+                type: "response.create",
+                response: {
+                    modalities: ["audio", "text"],
+                    instructions,
+                    audio: {
+                        voice: "marin",
+                        format: "pcm16"
+                    }
+                },
+                input_audio_transcription: {
+                    model: "gpt-4o-mini-transcribe"
+                }
+            }));
+            console.log("PROMT DE ESTADO ENVIADO");
+            
+        }
+
+        function detectStateFromText(text) { //**V2
+            if (!text) return currentState;
+
+            const lower = text.toLowerCase();
+
+            const riskWords = [
+                "no quiero vivir",
+                "quiero morir",
+                "suicidio",
+                "acabar con todo"
+            ];
+
+            if (riskWords.some(w => lower.includes(w))) {
+                return "RIESGO";
+            }
+
+            const alertWords = [
+                "cansado",
+                "agotado",
+                "solo",
+                "vacío",
+                "no puedo más"
+            ];
+
+            if (alertWords.some(w => lower.includes(w))) {
+                return "ALERTA_SUAVE";
+            }
+
+            return "ACOMPANAMIENTO";
+        }
+
+        startBtn.addEventListener('click', init);
+        stopBtn.addEventListener('click', stop);
+    </script>
+</body>
+</html>

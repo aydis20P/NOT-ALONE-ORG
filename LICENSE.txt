@@ -1,0 +1,63 @@
+LICENCIA DE SOFTWARE PROPIETARIO
+
+Copyright (c) 2025 Not Alone Org. Todos los derechos reservados.
+
+================================================================================
+
+AVISO DE PROPIEDAD INTELECTUAL
+
+Este software y toda la documentación asociada (el "Software") son propiedad 
+exclusiva de Not Alone Org y están protegidos por las leyes de derechos de 
+autor y tratados internacionales de propiedad intelectual.
+
+RESTRICCIONES DE USO
+
+1. PROHIBICIÓN DE COPIA Y DISTRIBUCIÓN
+   Queda estrictamente prohibida la reproducción, distribución, modificación,
+   o creación de trabajos derivados del Software, en su totalidad o en parte,
+   sin el consentimiento previo y por escrito de Not Alone Org.
+
+2. PROHIBICIÓN DE USO NO AUTORIZADO
+   El uso del Software está permitido únicamente a personas o entidades que
+   hayan obtenido una autorización explícita y por escrito de Not Alone Org.
+
+3. CONFIDENCIALIDAD
+   El Software contiene información confidencial y propietaria. Cualquier
+   persona que tenga acceso al Software se compromete a mantener su
+   confidencialidad y a no divulgar ninguna parte del mismo.
+
+4. INGENIERÍA INVERSA
+   Queda prohibido descompilar, desensamblar, realizar ingeniería inversa o
+   intentar derivar el código fuente del Software.
+
+5. PROPIEDAD INTELECTUAL
+   Todos los derechos de propiedad intelectual, incluyendo pero no limitado
+   a derechos de autor, marcas registradas, patentes y secretos comerciales,
+   permanecen exclusivamente con Not Alone Org.
+
+LIMITACIÓN DE RESPONSABILIDAD
+
+EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍAS DE NINGÚN TIPO, EXPRESAS
+O IMPLÍCITAS. EN NINGÚN CASO NOT ALONE ORG SERÁ RESPONSABLE POR DAÑOS
+DIRECTOS, INDIRECTOS, INCIDENTALES, ESPECIALES O CONSECUENTES QUE RESULTEN
+DEL USO O LA IMPOSIBILIDAD DE USO DEL SOFTWARE.
+
+JURISDICCIÓN
+
+Esta licencia se regirá e interpretará de acuerdo con las leyes de Colombia,
+sin consideración a sus principios de conflicto de leyes.
+
+VIOLACIÓN DE LICENCIA
+
+Cualquier uso no autorizado del Software constituye una violación de esta
+licencia y de las leyes de derechos de autor aplicables, pudiendo resultar
+en acciones legales civiles y/o criminales.
+
+================================================================================
+
+Para consultas sobre licenciamiento o permisos de uso, contactar a:
+Not Alone Org
+mich.palacios.hdz@gmail.com
+https://notalone-org.my.canva.site/
+
+Última actualización: Enero 2025

@@ -1,0 +1,18 @@
+{
+  "name": "not-alone-org-project",
+  "version": "1.0.0",
+  "description": "not-alone-org",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "private": true,
+  "author": "William Augusto Palacios Hernández mich.palacios.hdz@gmail.com",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1"
+  }
+}
