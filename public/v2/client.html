@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenAI Realtime WebRTC</title>
+    <title>NOT ALONE Realtime WebRTC</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f4f9; }
         .controls { padding: 20px; border-radius: 12px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -15,9 +15,17 @@
 </head>
 <body>
 
+
     <div class="controls">
-        <h2>OpenAI Realtime Voice</h2>
-        <button id="start-btn">Start Conversation</button>
+        <h2>NOT ALONE</h2>
+        <p>Realtime Voice Agent</p>
+        <form id="login-form" style="margin-bottom: 16px;">
+            <input id="username" type="text" placeholder="Username" required style="margin-right:8px;">
+            <input id="password" type="password" placeholder="Password" required style="margin-right:8px;">
+            <button type="submit">Login</button>
+        </form>
+        <div id="user-info" style="display:none; margin-bottom: 12px;"></div>
+        <button id="start-btn" disabled>Start Conversation</button>
         <button id="stop-btn">Stop</button>
         <div id="status">Status: Disconnected</div>
     </div>
@@ -66,9 +74,14 @@
         };
 
         let currentState = "ACOMPANAMIENTO";
+        let conversationId = null;
+        let userId = null;
+        let username = null;
         const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
         const statusDiv = document.getElementById('status');
+        const loginForm = document.getElementById('login-form');
+        const userInfoDiv = document.getElementById('user-info');
         
         let pc = null;
         let dc = null; //**V2
@@ -76,9 +89,20 @@
         let localStream = null;
 
         async function init() {
+            if (!userId) {
+                statusDiv.innerText = "Please login first.";
+                return;
+            }
             try {
+                // Generate a unique conversation id for this client-started conversation
+                if (window.crypto && crypto.randomUUID) {
+                    conversationId = crypto.randomUUID();
+                } else {
+                    conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+                }
+                console.log("Conversation id:", conversationId);
                 statusDiv.innerText = "Status: Accessing Microphone...";
-                
+
                 // 1. Get Microphone
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -94,47 +118,28 @@
                 };
 
                 // 4. Add mic track to connection
-                //pc.addTrack(localStream.getTracks()[0]);
-                pc.addTransceiver("audio", { direction: "sendrecv" });//** V2
+                pc.addTransceiver("audio", { direction: "sendrecv" });
                 localStream.getTracks().forEach(track => {
                     pc.addTrack(track, localStream);
                 });
 
                 // 5. Setup Data Channel (for text/events)
-                dc = pc.createDataChannel("oai-events"); //**V2
-                //dc.onmessage = (e) => {
-                //    const event = JSON.parse(e.data);
-                //    console.log("OpenAI Event:", event);
-                //};
-                dc.onmessage = (e) => {//**V2
+                dc = pc.createDataChannel("oai-events");
+                dc.onmessage = (e) => {
                     const event = JSON.parse(e.data);
-                    //console.log("OpenAI Event:", event);
-                    console.log(event.transcript);
-
-                    // Solo nos importa cuando el modelo devuelve texto //** V2 incorrecto 
-                    /*
-                    if (event.type === "response.output_text.delta" && event.delta) {
-                        console.log("TRYING TO DETECT NEW STATE");
-                        
-                        const newState = detectStateFromText(event.delta);
-
-                        if (newState !== currentState) {
-                        console.log(`🔄 Cambio de estado: ${currentState} → ${newState}`);
-                        currentState = newState;
-                        sendPrompt(currentState);
-                        }
+                    let transcript = event.transcript;
+                    if (event.transcript) {
+                        console.log(transcript);
+                        enviarTexto(transcript);
                     }
-                    */
-                     if (event.type === "input_audio_transcription.completed") {
+                    if (event.type === "input_audio_transcription.completed") {
                         const userText = event.transcript;
                         console.log("🧑 Usuario dijo:", userText);
-
                         const newState = detectStateFromText(userText);
-
                         if (newState !== currentState) {
-                        console.log(`🔄 Cambio de estado: ${currentState} → ${newState}`);
-                        currentState = newState;
-                        sendPrompt(currentState);
+                            console.log(`🔄 Cambio de estado: ${currentState} → ${newState}`);
+                            currentState = newState;
+                            sendPrompt(currentState);
                         }
                     }
                 };
@@ -161,11 +166,9 @@
                     sdp: answerSdp
                 });
 
-                dc.onopen = () => { //V2
+                dc.onopen = () => {
                     console.log("✅ DataChannel abierto");
                     dcReady = true;
-
-                    // 🔥 ACTIVA TRANSCRIPCIÓN DEL AUDIO DE ENTRADA
                     dc.send(JSON.stringify({
                         type: "session.update",
                         session: {
@@ -174,8 +177,6 @@
                             }
                         }
                     }));
-
-                    // Envío del prompt inicial
                     sendPrompt("ACOMPANAMIENTO");
                 };
 
@@ -257,7 +258,71 @@
         }
 
         startBtn.addEventListener('click', init);
+
+        // Login form logic
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const uname = document.getElementById('username').value.trim();
+            const pwd = document.getElementById('password').value;
+            if (!uname || !pwd) return;
+            statusDiv.innerText = 'Logging in...';
+            try {
+                const resp = await fetch('http://localhost:3000/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: uname, password: pwd })
+                });
+                const data = await resp.json();
+                if (resp.ok && data.userId) {
+                    userId = data.userId;
+                    username = data.username;
+                    userInfoDiv.innerText = `Logged in as: ${username}`;
+                    userInfoDiv.style.display = '';
+                    loginForm.style.display = 'none';
+                    startBtn.disabled = false;
+                    statusDiv.innerText = 'Login successful. Ready to start.';
+                } else {
+                    statusDiv.innerText = data.error || 'Login failed.';
+                }
+            } catch (err) {
+                statusDiv.innerText = 'Login error.';
+            }
+        });
         stopBtn.addEventListener('click', stop);
+
+        async function enviarTexto(texto) {
+            try {
+                if (!conversationId) {
+                    // Ensure we always send a conversation id; fallback if somehow missing
+                    if (window.crypto && crypto.randomUUID) {
+                        conversationId = crypto.randomUUID();
+                    } else {
+                        conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+                    }
+                }
+
+                const payload = JSON.stringify({ text: texto, conversationId });
+                console.log("TEXTO A ENVIAR: " + payload);
+
+                const response = await fetch('http://localhost:3000/api/log-text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: payload
+                });
+                
+                const data = await response.json();
+
+                if (response.ok) {
+                    console.log('Respuesta del servidor EXITOSA:', data);
+                } else {
+                    console.log('Respuesta del servidor:', data);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
     </script>
 </body>
 </html>

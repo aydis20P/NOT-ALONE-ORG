@@ -1,6 +1,9 @@
 require('dotenv').config();
 const express = require('express')
+const cors = require('cors');
 const app = express()
+
+const { connectDB } = require('./db');
 const port = 3000
 
 const SYSTEM_PROMPT = `
@@ -120,6 +123,8 @@ Tu rol es acompañar, no resolver.
 `;
 
 app.use(express.static('public'));
+app.use(cors());
+app.use(express.json());
 
 // IMPORTANTE: body raw como texto
 app.use(express.text({ type: "*/*" }));
@@ -170,6 +175,68 @@ app.post("/api/session", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error");
+  }
+});
+
+app.post('/api/log-text', (req, res) => {
+  let body = req.body;
+
+  // Body may be parsed as a string (from express.text) or as JSON (express.json).
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      // If it's not JSON, treat the whole body as the text field.
+      body = { text: body };
+    }
+  }
+
+  const { text, conversationId } = body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'El campo text es requerido' });
+  }
+
+  if (!conversationId) {
+    return res.status(400).json({ error: 'El campo conversationId es requerido' });
+  }
+
+  console.log(`📝 Texto recibido (conversationId=${conversationId}):`, text);
+
+  res.status(200).json({ 
+    success: true, 
+    message: 'Texto loggeado correctamente',
+    receivedText: text,
+    conversationId
+  });
+});
+
+// Simple user authentication (no password hashing for demo)
+app.post('/api/login', async (req, res) => {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  }
+  const { username, password } = body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
+  try {
+    const db = await connectDB();
+    const users = db.collection('users');
+    let user = await users.findOne({ username });
+    if (!user) {
+      // Create user if not exists (for demo)
+      const result = await users.insertOne({ username, password });
+      user = { _id: result.insertedId, username };
+    } else if (user.password !== password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    // For demo: return user id (in real app, use JWT or session)
+    res.status(200).json({ success: true, userId: user._id, username });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
