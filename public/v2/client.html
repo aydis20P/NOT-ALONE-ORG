@@ -190,9 +190,21 @@
             }
         }
 
-        function stop() {
+        async function stop() {
             if (pc) pc.close();
             if (localStream) localStream.getTracks().forEach(track => track.stop());
+            // Notify backend that conversation is over
+            if (conversationId) {
+                try {
+                    await fetch('http://localhost:3000/api/end-conversation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ conversationId })
+                    });
+                } catch (err) {
+                    console.error('Error ending conversation:', err);
+                }
+            }
             location.reload(); // Simplest way to reset state
         }
 

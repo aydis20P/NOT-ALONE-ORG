@@ -260,3 +260,71 @@ app.post('/api/login', async (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
+
+// Endpoint to end a conversation, summarize it, and store the summary
+app.post('/api/end-conversation', async (req, res) => {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch (e) { body = { conversationId: body }; }
+  }
+  const { conversationId } = body;
+  if (!conversationId) {
+    return res.status(400).json({ error: 'El campo conversationId es requerido' });
+  }
+  try {
+    const db = await connectDB();
+    const conversations = db.collection('conversations');
+    let conv = await conversations.findOne({ conversationId });
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversación no encontrada' });
+    }
+    // Mark as finished
+    await conversations.updateOne(
+      { conversationId },
+      { $set: { finishedAt: new Date() } }
+    );
+    // Prepare conversation log for summary
+    const logText = (conv.log || []).map(entry => entry.text).join('\n');
+    // Call LLM API to summarize (replace with your LLM integration)
+    const summary = await getConversationSummary(logText);
+    // Store summary in conversation document
+    await conversations.updateOne(
+      { conversationId },
+      { $set: { summary } }
+    );
+    res.status(200).json({ success: true, summary });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al finalizar y resumir la conversación' });
+  }
+});
+
+async function getConversationSummary(text) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+  const prompt = `Resume la siguiente conversación de apoyo emocional en español, resaltando los temas principales, el estado emocional y cualquier recomendación relevante para seguimiento. Considera que la "conversación" únicamente consta de las respuestas de un agente de apoyo emocional. El resumen debe ser breve y claro.\n\nCONVERSACIÓN:\n${text}`;
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: 'gpt-3.5-turbo',
+      messages: [
+        { role: 'system', content: 'Eres un asistente que resume conversaciones de apoyo emocional.' },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 256,
+      temperature: 0.4
+    })
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error('OpenAI API error: ' + errText);
+  }
+  const data = await response.json();
+  return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content
+    ? data.choices[0].message.content.trim()
+    : 'No se pudo generar el resumen.';
+}
