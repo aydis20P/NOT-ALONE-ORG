@@ -300,10 +300,12 @@
                         conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
                     }
                 }
-
-                const payload = JSON.stringify({ text: texto, conversationId });
+                if (!userId) {
+                    console.warn('No userId, cannot log conversation.');
+                    return;
+                }
+                const payload = JSON.stringify({ text: texto, conversationId, userId });
                 console.log("TEXTO A ENVIAR: " + payload);
-
                 const response = await fetch('http://localhost:3000/api/log-text', {
                     method: 'POST',
                     headers: {
@@ -311,9 +313,7 @@
                     },
                     body: payload
                 });
-                
                 const data = await response.json();
-
                 if (response.ok) {
                     console.log('Respuesta del servidor EXITOSA:', data);
                 } else {

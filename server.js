@@ -178,37 +178,54 @@ app.post("/api/session", async (req, res) => {
   }
 });
 
-app.post('/api/log-text', (req, res) => {
+app.post('/api/log-text', async (req, res) => {
   let body = req.body;
-
-  // Body may be parsed as a string (from express.text) or as JSON (express.json).
   if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch (e) {
-      // If it's not JSON, treat the whole body as the text field.
-      body = { text: body };
-    }
+    try { body = JSON.parse(body); } catch (e) { body = { text: body }; }
   }
-
-  const { text, conversationId } = body;
-
+  const { text, conversationId, userId } = body;
   if (!text) {
     return res.status(400).json({ error: 'El campo text es requerido' });
   }
-
   if (!conversationId) {
     return res.status(400).json({ error: 'El campo conversationId es requerido' });
   }
-
-  console.log(`📝 Texto recibido (conversationId=${conversationId}):`, text);
-
-  res.status(200).json({ 
-    success: true, 
-    message: 'Texto loggeado correctamente',
-    receivedText: text,
-    conversationId
-  });
+  if (!userId) {
+    return res.status(400).json({ error: 'El campo userId es requerido' });
+  }
+  try {
+    const db = await connectDB();
+    const conversations = db.collection('conversations');
+    // Find or create conversation
+    let conv = await conversations.findOne({ conversationId });
+    const now = new Date();
+    if (!conv) {
+      conv = {
+        conversationId,
+        userId,
+        startedAt: now,
+        log: []
+      };
+      await conversations.insertOne(conv);
+    }
+    // Append log entry
+    await conversations.updateOne(
+      { conversationId },
+      { $push: { log: { text, timestamp: now } } }
+    );
+    console.log(`📝 Texto recibido (conversationId=${conversationId}, userId=${userId}):`, text);
+    res.status(200).json({ 
+      success: true, 
+      message: 'Texto loggeado y conversación guardada',
+      receivedText: text,
+      conversationId,
+      userId,
+      timestamp: now
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar conversación' });
+  }
 });
 
 // Simple user authentication (no password hashing for demo)
