@@ -177,7 +177,10 @@
                 const response = await fetch(`http://127.0.0.1:3000/api/session`, {
                     method: "POST",
                     body: offer.sdp,
-                    headers: { "Content-Type": "application/sdp" }
+                    headers: { 
+                        "Content-Type": "application/sdp",
+                        "x-user-id": userId
+                    }
                 });
 
                 const answerSdp = await response.text();

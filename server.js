@@ -65,12 +65,36 @@ app.post("/api/session", async (req, res) => {
 
     const formData = new FormData();
     formData.append("sdp", clientSdp);
+
+    // If client provided a user id in headers, fetch recent summaries (memory)
+    let sessionInstructions = SYSTEM_PROMPT;
+    try {
+      const userId = req.headers['x-user-id'] || req.query.userId;
+      if (userId) {
+        const db = await connectDB();
+        const conversations = db.collection('conversations');
+        const recent = await conversations.find({ userId, summary: { $exists: true } })
+          .sort({ finishedAt: -1 })
+          .limit(5)
+          .toArray();
+        if (recent && recent.length) {
+          const memoryText = recent.map(c => {
+            const d = c.finishedAt ? new Date(c.finishedAt).toISOString().split('T')[0] : '';
+            return `${d}${d ? ' - ' : ''}${c.summary}`;
+          }).join('\n\n');
+          sessionInstructions += `\n\nAntecedentes del usuario (resúmenes de conversaciones anteriores):\n${memoryText}\n\nUsa esta información para contextualizar las respuestas, sin revelar datos sensibles.`;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching user memory:', err);
+    }
+
     formData.append(
       "session",
       JSON.stringify({
         type: "realtime",
         model: "gpt-4o-realtime-preview",
-        instructions: SYSTEM_PROMPT,
+        instructions: sessionInstructions,
         audio: { output: { voice: "marin" } }
       })
     );
@@ -227,7 +251,7 @@ app.post('/api/end-conversation', async (req, res) => {
 async function getConversationSummary(text) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
-  const prompt = `Resume la siguiente conversación de apoyo emocional en español, resaltando los temas principales, el estado emocional y cualquier recomendación relevante para seguimiento. Considera que la "conversación" únicamente consta de las respuestas de un agente de apoyo emocional. El resumen debe ser breve y claro.\n\nCONVERSACIÓN:\n${text}`;
+  const prompt = `Resume la siguiente conversación en español, resaltando los temas principales, el estado emocional y cualquier recomendación relevante para seguimiento. Considera que la "conversación" únicamente consta de las respuestas de un agente conversacional. El resumen debe ser breve y claro.\n\nCONVERSACIÓN:\n${text}`;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -237,7 +261,7 @@ async function getConversationSummary(text) {
     body: JSON.stringify({
       model: 'gpt-3.5-turbo',
       messages: [
-        { role: 'system', content: 'Eres un asistente que resume conversaciones de apoyo emocional.' },
+        { role: 'system', content: 'Eres un asistente que resume conversaciones.' },
         { role: 'user', content: prompt }
       ],
       max_tokens: 256,
