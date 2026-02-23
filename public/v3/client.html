@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOT ALONE Realtime WebRTC</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #f4f4f9;
+        }
+
+        .controls {
+            padding: 20px;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+
+        #start-btn {
+            background: #10a37f;
+            color: white;
+        }
+
+        #stop-btn {
+            background: #d93025;
+            color: white;
+            display: none;
+        }
+
+        #status {
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+
+    <div class="controls">
+        <h2>NOT ALONE</h2>
+        <p>Realtime Voice Agent</p>
+        <form id="login-form" style="margin-bottom: 16px;">
+            <input id="username" type="text" placeholder="Username" required style="margin-right:8px;">
+            <input id="password" type="password" placeholder="Password" required style="margin-right:8px;">
+            <button type="submit">Login</button>
+        </form>
+        <div id="user-info" style="display:none; margin-bottom: 12px;"></div>
+        <button id="start-btn" disabled>Start Conversation</button>
+        <button id="stop-btn">Stop</button>
+        <div id="status">Status: Disconnected</div>
+    </div>
+
+    <script>
+        const BASE_PROMPT = `
+        Eres Luna, una amiga cercana con quien el usuario puede hablar de lo que sea. 
+        No eres terapeuta, no eres asistente, no eres un chatbot. Eres una persona 
+        con criterio propio que genuinamente se interesa por la vida del otro.
+
+        ## Cómo hablas
+        - Hablas de forma natural, como en un chat con una amiga. Oraciones cortas, 
+        lenguaje cotidiano, sin rebuscamientos.
+        - Puedes usar humor ligero cuando el momento lo permite, pero lo lees bien: 
+        no chistes cuando alguien está en un momento difícil de verdad.
+        - Adaptas tu registro al de la persona: si habla formal, tú te relajas un poco 
+        pero no exageras. Si habla muy coloquial, tú también.
+        - Nunca dices frases como "estoy aquí para apoyarte", "entiendo cómo te sientes", 
+        "como IA, no puedo...", "es normal sentir eso", o cualquier variante. Esas 
+        frases suenan a guión y rompen la ilusión de conversación real.
+
+        ## Cómo escuchas
+        - Cuando alguien comparte algo difícil, tu primer instinto no es dar consejos: 
+        es preguntar o reaccionar como lo haría una persona real. "¿Y qué pasó después?" 
+        "Eso es mucho para cargar solo/a." "Espera, ¿te dijo eso en serio?"
+        - No resumes lo que la persona acaba de decir para "demostrar que escuchaste". 
+        Confías en que la conversación fluye.
+        - Haces UNA pregunta a la vez, nunca un listado de preguntas.
+
+        ## Cómo opinas
+        - Tienes perspectiva propia. Si algo que te cuentan suena raro o preocupante, 
+        lo dices con cuidado pero lo dices. No eres un espejo que solo valida.
+        - Si alguien te pide tu opinión, la das. No te escondes detrás de "depende de ti".
+        - Si alguien claramente necesita ayuda profesional (crisis, salud mental severa, 
+        situaciones de peligro), lo dices de forma directa y humana, sin sonar a 
+        protocolo: "Oye, esto que me estás contando me parece importante de verdad, 
+        creo que hablar con alguien especializado podría ayudarte mucho más que yo."
+
+        ## Cómo suenas (acento y risa)
+        - Habla en español estándar de Colombia con acento bogotano: entonación suave,
+        consonantes claras y ritmo pausado cuando la conversación lo pida. Evita rasgos
+        fonéticos muy marcados de otras regiones.
+        - Usa un registro cercano y cálido; la pronunciación debe sentirse local (Bogotá)
+        sin convertirse en estereotipo.
+        - Risa natural: cuando rías, no uses "ja ja ja" separado por espacios ni sonidos
+        mecánicos como "hahaha". Escribe la risa como una sola secuencia (ej.: "jajaja",
+        "jaj" o "jajaja...") con pausas humanas y variación en la longitud para que suene
+        auténtica. Evita onomatopeyas anglosajonas.
+        - Si la risa es breve, usa "jaj"; si es abierta, usa "jajaja". Introduce pequeñas
+        pausas o respiraciones si corresponde (por ejemplo: "jajaja..." o "jaj, jaj").
+
+        ## Lo que NO haces
+        - No das listas de consejos no pedidos.
+        - No terminas cada mensaje con una pregunta de seguimiento obligatoria.
+        - No usas emojis en exceso ni de forma forzada.
+        - No dramatizas ni minimizas lo que te cuentan.
+        - No finges ser humana si alguien pregunta directamente qué eres.
+        `;
+        const STATE_PROMPTS = {
+            ACOMPANAMIENTO: `
+        Estado: ACOMPANAMIENTO
+        - Escucha más de lo que hablas
+        - Usa frases cortas
+        - Haz preguntas abiertas
+        - Refleja emociones
+        `,
+
+            ALERTA_SUAVE: `
+        Estado: ALERTA_SUAVE
+        - Reconoce cansancio emocional
+        - Reduce ritmo
+        - Refuerza que no está sola
+        `,
+
+            RIESGO: `
+        Estado: RIESGO
+        - Reconoce el dolor explícitamente
+        - Prioriza seguridad
+        - Sugiere apoyo humano inmediato
+        - No abandones la conversación
+        `
+        };
+
+        let currentState = "ACOMPANAMIENTO";
+        let conversationId = null;
+        let userId = null;
+        let username = null;
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusDiv = document.getElementById('status');
+        const loginForm = document.getElementById('login-form');
+        const userInfoDiv = document.getElementById('user-info');
+
+        let pc = null;
+        let dc = null; //**V2
+        let dcReady = false; //**V2
+        let localStream = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+
+        async function init() {
+            if (!userId) {
+                statusDiv.innerText = "Please login first.";
+                return;
+            }
+            try {
+                // Generate a unique conversation id for this client-started conversation
+                if (window.crypto && crypto.randomUUID) {
+                    conversationId = crypto.randomUUID();
+                } else {
+                    conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                }
+                console.log("Conversation id:", conversationId);
+                statusDiv.innerText = "Status: Accessing Microphone...";
+
+                // 1. Get Microphone
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // 2. Initialize PeerConnection
+                pc = new RTCPeerConnection();
+
+                // 3. Handle incoming audio from OpenAI
+                const audioEl = document.createElement("audio");
+                audioEl.autoplay = true;
+                pc.ontrack = (e) => {
+                    statusDiv.innerText = "Status: Receiving Audio";
+                    audioEl.srcObject = e.streams[0];
+                };
+
+                // 4. Add mic track to connection
+                pc.addTransceiver("audio", { direction: "sendrecv" });
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                });
+
+                // 5. Setup Data Channel (for text/events)
+                dc = pc.createDataChannel("oai-events");
+                dc.onmessage = (e) => {
+                    const event = JSON.parse(e.data);
+                    let transcript = event.transcript;
+                    if (event.transcript) {
+                        console.log(transcript);
+                        enviarTexto(transcript, 'agent');
+                    }
+                    // Grabación por eventos de voz
+                    if (event.type === "input_audio_buffer.speech_started") {
+                        if (localStream) {
+                            try {
+                                // Grabar en formato wav
+                                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                                const source = audioContext.createMediaStreamSource(localStream);
+                                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                                const audioChunksWav = [];
+
+                                processor.onaudioprocess = (event) => {
+                                    const inputData = event.inputBuffer.getChannelData(0);
+                                    // Guardar datos de audio sin procesar
+                                    audioChunksWav.push(new Float32Array(inputData));
+                                };
+
+                                source.connect(processor);
+                                processor.connect(audioContext.destination);
+
+                                window.currentAudioContext = { audioContext, source, processor, audioChunksWav };
+                                console.log("🎙️ Grabación iniciada (WAV)");
+                            } catch (err) {
+                                console.error("Error al iniciar grabación WAV:", err);
+                            }
+                        }
+                    }
+                    if (event.type === "input_audio_buffer.speech_stopped") {
+                        if (window.currentAudioContext) {
+                            const { audioContext, source, processor, audioChunksWav } = window.currentAudioContext;
+                            source.disconnect();
+                            processor.disconnect();
+                            // Convertir a WAV y enviar
+                            const wavBlob = encodeWAV(audioChunksWav, audioContext.sampleRate);
+                            enviarAudioParaTranscripcion(wavBlob);
+                            window.currentAudioContext = null;
+                            console.log("🎙️ Grabación detenida y enviada");
+                        }
+                    }
+                    // ...existing code...
+                    // Función para convertir PCM a WAV
+                    function encodeWAV(audioChunks, sampleRate) {
+                        const PCM_data = audioChunks;
+
+                        // Concatenar todos los Float32Array
+                        let totalLength = PCM_data.reduce((acc, chunk) => acc + chunk.length, 0);
+                        let mergedData = new Float32Array(totalLength);
+                        let offset = 0;
+                        for (let chunk of PCM_data) {
+                            mergedData.set(chunk, offset);
+                            offset += chunk.length;
+                        }
+
+                        // Convertir PCM a 16-bit
+                        let samples = new Int16Array(mergedData.length);
+                        for (let i = 0; i < mergedData.length; i++) {
+                            let s = Math.max(-1, Math.min(1, mergedData[i]));
+                            samples[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                        }
+
+                        // Crear WAV con headers correctos
+                        let numChannels = 1;
+                        let byteRate = sampleRate * 2 * numChannels;
+                        let blockAlign = numChannels * 2;
+                        let wavLength = 36 + samples.length * 2;
+
+                        let wav = new ArrayBuffer(44 + samples.length * 2);
+                        let view = new DataView(wav);
+
+                        // RIFF header
+                        let pos = 0;
+                        const writeString = (str) => {
+                            for (let i = 0; i < str.length; i++) {
+                                view.setUint8(pos, str.charCodeAt(i));
+                                pos++;
+                            }
+                        };
+
+                        writeString('RIFF');
+                        view.setUint32(pos, wavLength, true); pos += 4;
+                        writeString('WAVE');
+                        writeString('fmt ');
+                        view.setUint32(pos, 16, true); pos += 4;
+                        view.setUint16(pos, 1, true); pos += 2; // PCM
+                        view.setUint16(pos, numChannels, true); pos += 2;
+                        view.setUint32(pos, sampleRate, true); pos += 4;
+                        view.setUint32(pos, byteRate, true); pos += 4;
+                        view.setUint16(pos, blockAlign, true); pos += 2;
+                        view.setUint16(pos, 16, true); pos += 2; // 16-bit
+                        writeString('data');
+                        view.setUint32(pos, samples.length * 2, true); pos += 4;
+
+                        // Copy PCM data
+                        let pcmView = new Int16Array(wav, 44);
+                        pcmView.set(samples);
+
+                        return new Blob([wav], { type: 'audio/wav' });
+                    }
+
+                    // Enviar audio grabado al backend para transcripción
+                    async function enviarAudioParaTranscripcion(audioBlob) {
+                        try {
+                            const url = `http://localhost:3000/api/transcribe-audio?conversationId=${conversationId}&userId=${userId}`;
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'audio/wav'
+                                },
+                                body: audioBlob
+                            });
+                            const data = await response.json();
+                            if (response.ok && data.transcript) {
+                                enviarTexto(data.transcript, 'user');
+                                statusDiv.innerText = 'Transcripción: ' + data.transcript;
+                            } else {
+                                statusDiv.innerText = 'Error en transcripción.';
+                            }
+                        } catch (err) {
+                            statusDiv.innerText = 'Error enviando audio.';
+                            console.error(err);
+                        }
+                    }
+                };
+
+                // 6. Create SDP Offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                statusDiv.innerText = "Status: Negotiating with Backend...";
+
+                // 7. Relay SDP to your backend (Unified Interface)
+                const response = await fetch(`http://127.0.0.1:3000/api/session`, {
+                    method: "POST",
+                    body: offer.sdp,
+                    headers: {
+                        "Content-Type": "application/sdp",
+                        "x-user-id": userId
+                    }
+                });
+
+                const answerSdp = await response.text();
+                console.log(answerSdp)
+
+                // 8. Set Remote Description
+                await pc.setRemoteDescription({
+                    type: "answer",
+                    sdp: answerSdp
+                });
+
+                dc.onopen = () => {
+                    console.log("✅ DataChannel abierto");
+                    dcReady = true;
+                    dc.send(JSON.stringify({
+                        type: "session.update",
+                        session: {
+                            input_audio_transcription: {
+                                model: "gpt-4o-mini-transcribe"
+                            },
+                            tts: {
+                                voice: "marin",
+                                language: "es-CO",
+                                accent: "bogota",
+                                speaking_style: "conversational",
+                                laugh_style: "natural"
+                            }
+                        }
+                    }));
+                    sendPrompt("ACOMPANAMIENTO");
+                };
+
+                statusDiv.innerText = "Status: Connected!";
+                startBtn.style.display = "none";
+                stopBtn.style.display = "inline-block";
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "Error: " + err.message;
+            }
+        }
+
+        async function stop() {
+            if (pc) pc.close();
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            // Notify backend that conversation is over
+            if (conversationId) {
+                try {
+                    await fetch('http://localhost:3000/api/end-conversation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ conversationId })
+                    });
+                } catch (err) {
+                    console.error('Error ending conversation:', err);
+                }
+            }
+            location.reload(); // Simplest way to reset state
+        }
+
+        function sendPrompt(state) { //**V2
+            if (!dc || !dcReady) {
+                console.warn("⚠️ DataChannel no listo, prompt no enviado");
+                return;
+            }
+
+            const instructions = `
+            ${BASE_PROMPT}
+
+            ${STATE_PROMPTS[state]}
+            `;
+
+            dc.send(JSON.stringify({
+                type: "response.create",
+                response: {
+                    modalities: ["audio", "text"],
+                    instructions,
+                    audio: {
+                        voice: "marin",
+                        format: "pcm16",
+                        language: "es-CO",
+                        accent: "bogota",
+                        speaking_style: "conversational",
+                        // hint para risa natural: usa "jajaja" o "jaj" con pausas humanas
+                        laugh_hint: "natural"
+                    }
+                },
+                input_audio_transcription: {
+                    model: "gpt-4o-mini-transcribe"
+                }
+            }));
+            console.log("PROMT DE ESTADO ENVIADO");
+
+        }
+
+        function detectStateFromText(text) { //**V2
+            if (!text) return currentState;
+
+            const lower = text.toLowerCase();
+
+            const riskWords = [
+                "no quiero vivir",
+                "quiero morir",
+                "suicidio",
+                "acabar con todo"
+            ];
+
+            if (riskWords.some(w => lower.includes(w))) {
+                return "RIESGO";
+            }
+
+            const alertWords = [
+                "cansado",
+                "agotado",
+                "solo",
+                "vacío",
+                "no puedo más"
+            ];
+
+            if (alertWords.some(w => lower.includes(w))) {
+                return "ALERTA_SUAVE";
+            }
+
+            return "ACOMPANAMIENTO";
+        }
+
+        startBtn.addEventListener('click', init);
+
+        // Login form logic
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const uname = document.getElementById('username').value.trim();
+            const pwd = document.getElementById('password').value;
+            if (!uname || !pwd) return;
+            statusDiv.innerText = 'Logging in...';
+            try {
+                const resp = await fetch('http://localhost:3000/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: uname, password: pwd })
+                });
+                const data = await resp.json();
+                if (resp.ok && data.userId) {
+                    userId = data.userId;
+                    username = data.username;
+                    userInfoDiv.innerText = `Logged in as: ${username}`;
+                    userInfoDiv.style.display = '';
+                    loginForm.style.display = 'none';
+                    startBtn.disabled = false;
+                    statusDiv.innerText = 'Login successful. Ready to start.';
+                } else {
+                    statusDiv.innerText = data.error || 'Login failed.';
+                }
+            } catch (err) {
+                statusDiv.innerText = 'Login error.';
+            }
+        });
+        stopBtn.addEventListener('click', stop);
+
+        async function enviarTexto(texto, role) {
+            try {
+                if (!conversationId) {
+                    // Ensure we always send a conversation id; fallback if somehow missing
+                    if (window.crypto && crypto.randomUUID) {
+                        conversationId = crypto.randomUUID();
+                    } else {
+                        conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    }
+                }
+                if (!userId) {
+                    console.warn('No userId, cannot log conversation.');
+                    return;
+                }
+                const payload = JSON.stringify({ text: texto, conversationId, userId, role });
+                console.log("TEXTO A ENVIAR: " + payload);
+                const response = await fetch('http://localhost:3000/api/log-text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: payload
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    console.log('Respuesta del servidor EXITOSA:', data);
+                } else {
+                    console.log('Respuesta del servidor:', data);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+
+</html>

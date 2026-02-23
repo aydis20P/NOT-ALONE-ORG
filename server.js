@@ -62,7 +62,9 @@ pausas o respiraciones si corresponde (por ejemplo: "jajaja..." o "jaj, jaj").
 
 app.use(express.static('public'));
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.raw({ type: 'audio/*', limit: '25mb' }));
 
 // IMPORTANTE: body raw como texto
 app.use(express.text({ type: "*/*" }));
@@ -145,7 +147,7 @@ app.post('/api/log-text', async (req, res) => {
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch (e) { body = { text: body }; }
   }
-  const { text, conversationId, userId } = body;
+  const { text, conversationId, userId, role } = body;
   if (!text) {
     return res.status(400).json({ error: 'El campo text es requerido' });
   }
@@ -170,18 +172,19 @@ app.post('/api/log-text', async (req, res) => {
       };
       await conversations.insertOne(conv);
     }
-    // Append log entry
+    // Append log entry, ahora con role
     await conversations.updateOne(
       { conversationId },
-      { $push: { log: { text, timestamp: now } } }
+      { $push: { log: { text, timestamp: now, role: role || 'agent' } } }
     );
-    console.log(`📝 Texto recibido (conversationId=${conversationId}, userId=${userId}):`, text);
+    console.log(`📝 Texto recibido (conversationId=${conversationId}, userId=${userId}, role=${role || 'agent'}):`, text);
     res.status(200).json({
       success: true,
       message: 'Texto loggeado y conversación guardada',
       receivedText: text,
       conversationId,
       userId,
+      role: role || 'agent',
       timestamp: now
     });
   } catch (err) {
@@ -264,7 +267,7 @@ app.post('/api/end-conversation', async (req, res) => {
 async function getConversationSummary(text) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
-  const prompt = `Resume la siguiente conversación en español, resaltando los temas principales, el estado emocional y cualquier recomendación relevante para seguimiento. Considera que la "conversación" únicamente consta de las respuestas de un agente conversacional. El resumen debe ser breve y claro.\n\nCONVERSACIÓN:\n${text}`;
+  const prompt = `Resume la siguiente conversación en español, resaltando los temas principales, el estado emocional y cualquier recomendación relevante para seguimiento. El resumen debe ser breve y claro.\n\nCONVERSACIÓN:\n${text}`;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -290,3 +293,40 @@ async function getConversationSummary(text) {
     ? data.choices[0].message.content.trim()
     : 'No se pudo generar el resumen.';
 }
+
+app.post('/api/transcribe-audio', express.raw({ type: 'audio/wav', limit: '50mb' }), async (req, res) => {
+    const filePath = `debug-${Date.now()}.wav`;
+
+    // express.raw() active, data is on req.body (a Buffer)
+    if (req.body && Buffer.isBuffer(req.body) && req.body.length > 0) {
+
+        // Prepare the Form Data in memory
+        const audioBlob = new Blob([req.body], { type: 'audio/wav' });
+        const formData = new FormData();
+        
+        // We MUST provide a filename so the API treats it as a file.
+        formData.append('file', audioBlob, 'audio.wav');
+        formData.append('model', 'whisper-1');
+
+        // Send to OpenAI
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+          },
+          body: formData
+        });
+
+        const data = await response.json();
+        if (response.ok && data.text) {
+          console.log('✅ Transcription successful');
+          res.json({ transcript: data.text });
+        } else {
+          console.error('❌ Transcription failed:', data);
+          res.status(500).json({ error: 'Transcription failed', details: data });
+        }
+    } else {
+      console.error('❌ No audio data received or data is not a Buffer');
+      return res.status(400).json({ error: 'No audio data received' });
+    }
+});
