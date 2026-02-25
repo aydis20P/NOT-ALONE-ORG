@@ -77,8 +77,8 @@ Como embajador/a de NOT ALONE, ayudarás a:
 
 ¿Quieres ser parte de NOT ALONE? Contáctanos:
 
-- **Sitio Web**: [https://notalone-org.my.canva.site/](https://notalone-org.my.canva.site/)
-- **Email**: mich.palacios.hdz@gmail.com
+- **Sitio Web**: [https://notalone.mx/](https://notalone.mx/)
+- **Email**: contacto@notalone.mx
 - **Redes Sociales**: https://www.facebook.com/share/1848qnVrc2/?mibextid=wwXIfr
 
 ## 📋 Roadmap del Proyecto
@@ -87,11 +87,11 @@ Como embajador/a de NOT ALONE, ayudarás a:
 - [x] Definición de misión y visión
 - [x] Estructura básica del proyecto
 - [ ] Conformación del equipo fundador
-- [ ] Definición de arquitectura técnica
+- [x] Definición de arquitectura técnica
 
 ### Fase 2: Desarrollo MVP
-- [ ] Desarrollo de plataforma base
-- [ ] Sistema de atención inmediata
+- [x] Desarrollo de plataforma base
+- [x] Sistema de atención inmediata
 - [ ] Integración con servicios de emergencia
 - [ ] Pruebas con usuarios piloto
 
