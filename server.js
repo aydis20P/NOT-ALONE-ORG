@@ -90,7 +90,7 @@ app.post("/api/session", async (req, res) => {
         const conversations = db.collection('conversations');
         const recent = await conversations.find({ userId, summary: { $exists: true } })
           .sort({ finishedAt: -1 })
-          .limit(5)
+          .limit(10)
           .toArray();
         if (recent && recent.length) {
           const memoryText = recent.map(c => {
