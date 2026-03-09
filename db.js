@@ -15,7 +15,10 @@ async function connectDB() {
                 version: ServerApiVersion.v1,
                 strict: true,
                 deprecationErrors: true,
-            }
+            },
+            // Longer timeouts for slow or flaky networks (e.g. some WiFi)
+            connectTimeoutMS: 20000,
+            serverSelectionTimeoutMS: 30000,
         }
         );
         await client.connect();
