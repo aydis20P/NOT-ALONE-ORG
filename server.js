@@ -81,23 +81,91 @@ app.post("/api/session", async (req, res) => {
     const formData = new FormData();
     formData.append("sdp", clientSdp);
 
-    // If client provided a user id in headers, fetch recent summaries (memory)
+    // If client provided a user id in headers, fetch recent summaries (last 15 days),
+    // plus all memories and moments for that user.
     let sessionInstructions = SYSTEM_PROMPT;
     try {
       const userId = req.headers['x-user-id'] || req.query.userId;
       if (userId) {
         const db = await connectDB();
         const conversations = db.collection('conversations');
-        const recent = await conversations.find({ userId, summary: { $exists: true } })
+        const memoriesColl = db.collection('memories');
+        const momentsColl = db.collection('moments');
+
+        const now = new Date();
+        const since = new Date(now);
+        since.setDate(since.getDate() - 15);
+
+        // 1) Conversation summaries from last 15 days
+        const recentConversations = await conversations.find({
+          userId,
+          summary: { $exists: true, $ne: null, $ne: '' },
+          finishedAt: { $gte: since }
+        })
+          .sort({ finishedAt: -1 })
+          .toArray();
+
+        // 1.1) 10 last conversations summaries if last 15 days are not enough
+        let lastConversations = [];
+        if (recentConversations.length < 10) {
+          lastConversations = await conversations.find({
+            userId,
+            summary: { $exists: true, $ne: null, $ne: '' }
+          })
           .sort({ finishedAt: -1 })
           .limit(10)
           .toArray();
-        if (recent && recent.length) {
-          const memoryText = recent.map(c => {
-            const d = c.finishedAt ? new Date(c.finishedAt).toISOString().split('T')[0] : '';
+        }
+
+        // 2) All memories for this user
+        const memories = await memoriesColl.find({ userId })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        // 3) All moments for this user
+        const moments = await momentsColl.find({ userId })
+          .sort({ occurredAt: 1 })
+          .toArray();
+
+        const parts = [];
+
+        if (recentConversations.length >= 10) {
+          const convText = recentConversations.map(c => {
+            const d = c.finishedAt
+              ? new Date(c.finishedAt).toISOString().split('T')[0]
+              : (c.startedAt ? new Date(c.startedAt).toISOString().split('T')[0] : '');
             return `${d}${d ? ' - ' : ''}${c.summary}`;
           }).join('\n\n');
-          sessionInstructions += `\n\nAntecedentes del usuario (resúmenes de conversaciones anteriores):\n${memoryText}\n\nUsa esta información para contextualizar las respuestas, sin revelar datos sensibles.`;
+          parts.push(`Resúmenes de conversaciones de los últimos 15 días:\n${convText}`);
+        } else if (lastConversations.length) {
+          const convText = lastConversations.map(c => {
+            const d = c.finishedAt
+              ? new Date(c.finishedAt).toISOString().split('T')[0]
+              : (c.startedAt ? new Date(c.startedAt).toISOString().split('T')[0] : '');
+            return `${d}${d ? ' - ' : ''}${c.summary}`;
+          }).join('\n\n');
+          parts.push(`Resúmenes de conversaciones de los últimos 15 días:\n${convText}`);
+        }
+
+        if (memories.length) {
+          const memoriesText = memories.map(m => {
+            const from = m.firstConversationAt ? new Date(m.firstConversationAt).toISOString().split('T')[0] : '';
+            const to = m.lastConversationAt ? new Date(m.lastConversationAt).toISOString().split('T')[0] : '';
+            return `Memoria (${from} a ${to}): ${m.content}`;
+          }).join('\n\n');
+          parts.push(`Memorias previas del usuario:\n${memoriesText}`);
+        }
+
+        if (moments.length) {
+          const momentsText = moments.map(m => {
+            const d = m.occurredAt ? new Date(m.occurredAt).toISOString().split('T')[0] : '';
+            return `${d}${d ? ' - ' : ''}${m.description}`;
+          }).join('\n');
+          parts.push(`Momentos significativos detectados:\n${momentsText}`);
+        }
+
+        if (parts.length) {
+          sessionInstructions += `\n\nAntecedentes del usuario (resúmenes, memorias y momentos):\n${parts.join('\n\n')}\n\nUsa esta información para contextualizar las respuestas, sin revelar datos sensibles.`;
         }
       }
     } catch (err) {
