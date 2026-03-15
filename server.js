@@ -117,10 +117,12 @@ app.post("/api/session", async (req, res) => {
           .toArray();
         }
 
+        /*
         // 2) All memories for this user
         const memories = await memoriesColl.find({ userId })
           .sort({ createdAt: -1 })
           .toArray();
+        */
 
         // 3) All moments for this user
         const moments = await momentsColl.find({ userId })
@@ -147,6 +149,7 @@ app.post("/api/session", async (req, res) => {
           parts.push(`Resúmenes de conversaciones de los últimos 15 días:\n${convText}`);
         }
 
+        /*
         if (memories.length) {
           const memoriesText = memories.map(m => {
             const from = m.firstConversationAt ? new Date(m.firstConversationAt).toISOString().split('T')[0] : '';
@@ -155,6 +158,7 @@ app.post("/api/session", async (req, res) => {
           }).join('\n\n');
           parts.push(`Memorias previas del usuario:\n${memoriesText}`);
         }
+        */
 
         if (moments.length) {
           const momentsText = moments.map(m => {
@@ -165,7 +169,7 @@ app.post("/api/session", async (req, res) => {
         }
 
         if (parts.length) {
-          sessionInstructions += `\n\nAntecedentes del usuario (resúmenes, memorias y momentos):\n${parts.join('\n\n')}\n\nUsa esta información para contextualizar las respuestas, sin revelar datos sensibles.`;
+          sessionInstructions += `\n\nAntecedentes del usuario (resúmenes y momentos):\n${parts.join('\n\n')}\n\nEstos son los recuerdos que tienes de tus conversaciones con el usuario.`;
         }
       }
     } catch (err) {
